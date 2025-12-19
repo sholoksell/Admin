@@ -1,0 +1,52 @@
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const Admin = require('./models/Admin');
+
+const uri = 'mongodb+srv://sholoksell1_db_user:s9X1N6Y57l9nWQHK@cluster0.9crcrtz.mongodb.net/sholok_ecommerce?retryWrites=true&w=majority&appName=Cluster0';
+
+async function seedDefaultAdmin() {
+  try {
+    await mongoose.connect(uri);
+    console.log('✅ MongoDB Connected');
+
+    // Check if admin already exists
+    const existingAdmin = await Admin.findOne({ email: 'bishal@admin.com' });
+    
+    if (existingAdmin) {
+      console.log('ℹ️  Default admin already exists');
+      console.log('Email: bishal@admin.com');
+      console.log('Username: bishal');
+      await mongoose.connection.close();
+      return;
+    }
+
+    // Create default admin
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash('bishal@123456', salt);
+
+    const defaultAdmin = new Admin({
+      name: 'Bishal',
+      email: 'bishal@admin.com',
+      password: hashedPassword,
+      role: 'super_admin',
+      isActive: true,
+    });
+
+    await defaultAdmin.save();
+
+    console.log('✅ Default admin created successfully!');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📧 Email: bishal@admin.com');
+    console.log('👤 Username: bishal');
+    console.log('🔑 Password: bishal@123456');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    await mongoose.connection.close();
+    console.log('✅ Database connection closed');
+  } catch (error) {
+    console.error('❌ Error:', error.message);
+    process.exit(1);
+  }
+}
+
+seedDefaultAdmin();
