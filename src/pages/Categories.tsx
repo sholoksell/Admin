@@ -34,6 +34,7 @@ import {
 import { toast } from 'sonner';
 import CategoryFormDialog from '@/components/categories/CategoryFormDialog';
 import DeleteCategoryDialog from '@/components/categories/DeleteCategoryDialog';
+import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog';
 
 export default function Categories() {
   const { categories, deleteCategory, bulkDelete, bulkUpdateStatus, fetchCategories } = useCategoryStore();
@@ -43,6 +44,7 @@ export default function Categories() {
   const [formOpen, setFormOpen] = useState(false);
   const [editCategory, setEditCategory] = useState<Category | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
 
   useEffect(() => {
@@ -96,11 +98,17 @@ export default function Categories() {
 
   const handleDeleteClick = (category: Category) => {
     const hasChildren = getChildCount(category.id) > 0;
+    setCategoryToDelete(category);
     if (hasChildren) {
-      setCategoryToDelete(category);
       setDeleteOpen(true);
     } else {
-      deleteCategory(category.id);
+      setDeleteConfirmOpen(true);
+    }
+  };
+
+  const confirmSimpleDelete = () => {
+    if (categoryToDelete) {
+      deleteCategory(categoryToDelete.id);
       toast.success('Category deleted');
     }
   };
@@ -288,9 +296,9 @@ export default function Categories() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    {category.parentId ? (
+                    {category.parentId && categories.find(p => p.id === category.parentId) ? (
                       <span className="text-muted-foreground text-sm">
-                        {getCategoryPath(category)}
+                        {getCategoryPath(categories.find(p => p.id === category.parentId)!)}
                       </span>
                     ) : (
                       <Badge variant="secondary">Root</Badge>
@@ -367,6 +375,11 @@ export default function Categories() {
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         category={categoryToDelete}
+      />
+      <DeleteConfirmationDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        onConfirm={confirmSimpleDelete}
       />
     </div>
   );

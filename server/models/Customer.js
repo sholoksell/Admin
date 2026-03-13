@@ -15,6 +15,10 @@ const customerSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  password: {
+    type: String,
+    default: null,
+  },
   address: {
     street: String,
     city: String,

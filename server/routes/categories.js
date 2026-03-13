@@ -3,6 +3,142 @@ const router = express.Router();
 const Category = require('../models/Category');
 const authMiddleware = require('../middleware/auth');
 
+// ─── PUBLIC ROUTES (must be before /:id) ────────────────────────────────────
+
+// Get category by slug - public, used by storefront CategoryPage
+router.get('/public/slug/:slug', async (req, res) => {
+  try {
+    const cat = await Category.findOne({ slug: req.params.slug, isActive: true });
+    if (!cat) return res.status(404).json({ message: 'Category not found' });
+
+    // Get subcategories
+    const subcategories = await Category.find({ parentId: cat._id, isActive: true }).sort({ order: 1, name: 1 });
+
+    // Get parent chain for breadcrumb
+    let parent = null;
+    if (cat.parentId) {
+      parent = await Category.findById(cat.parentId).select('name slug');
+    }
+
+    res.json({
+      category: {
+        _id: cat._id,
+        name: cat.name,
+        slug: cat.slug,
+        description: cat.description,
+        image: cat.image,
+        icon: cat.icon,
+        parentId: cat.parentId,
+        parent: parent ? { name: parent.name, slug: parent.slug } : null,
+      },
+      subcategories,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+// Get all active categories nested - used by stoefront sidebar & Shop By Category
+router.get('/public/all', async (req, res) => {
+  try {
+    const allCategories = await Category.find({ isActive: true }).sort({ order: 1, name: 1 });
+    const categoryMap = {};
+    const rootCategories = [];
+    allCategories.forEach(cat => {
+      categoryMap[cat._id.toString()] = {
+        _id: cat._id,
+        name: cat.name,
+        slug: cat.slug,
+        description: cat.description,
+        image: cat.image,
+        icon: cat.icon,
+        featured: cat.featured,
+        order: cat.order,
+        subcategories: []
+      };
+    });
+    allCategories.forEach(cat => {
+      if (cat.parentId) {
+        const parent = categoryMap[cat.parentId.toString()];
+        if (parent) parent.subcategories.push(categoryMap[cat._id.toString()]);
+      } else {
+        rootCategories.push(categoryMap[cat._id.toString()]);
+      }
+    });
+    res.json(rootCategories);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get featured/top categories with subcategories - used by homepage Shop By Category section
+router.get('/public/featured', async (req, res) => {
+  try {
+    // Return ALL active root categories (not just featured-flagged ones)
+    const rootCategories = await Category.find({
+      isActive: true,
+      parentId: null
+    }).sort({ order: 1, name: 1 });
+
+    const allCats = await Category.find({ isActive: true }).sort({ order: 1, name: 1 });
+
+    // Build full nested structure in one pass (no extra queries per category)
+    const categoryMap = {};
+    allCats.forEach(cat => {
+      categoryMap[cat._id.toString()] = {
+        _id: cat._id,
+        name: cat.name,
+        slug: cat.slug,
+        description: cat.description,
+        image: cat.image,
+        icon: cat.icon,
+        featured: cat.featured,
+        order: cat.order,
+        subcategories: []
+      };
+    });
+    allCats.forEach(cat => {
+      if (cat.parentId) {
+        const parent = categoryMap[cat.parentId.toString()];
+        if (parent) parent.subcategories.push(categoryMap[cat._id.toString()]);
+      }
+    });
+
+    const result = rootCategories.map(cat => categoryMap[cat._id.toString()]).filter(Boolean);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Legacy shop-by-category public endpoint
+router.get('/public/shop-by-category', async (req, res) => {
+  try {
+    const allCategories = await Category.find({ isActive: true }).sort({ order: 1, name: 1 });
+    const categoryMap = {};
+    const rootCategories = [];
+    allCategories.forEach(cat => {
+      categoryMap[cat._id.toString()] = {
+        _id: cat._id, name: cat.name, slug: cat.slug,
+        description: cat.description, image: cat.image,
+        featured: cat.featured, order: cat.order, subcategories: []
+      };
+    });
+    allCategories.forEach(cat => {
+      if (cat.parentId) {
+        const parent = categoryMap[cat.parentId.toString()];
+        if (parent) parent.subcategories.push(categoryMap[cat._id.toString()]);
+      } else {
+        rootCategories.push(categoryMap[cat._id.toString()]);
+      }
+    });
+    res.json(rootCategories);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ─── AUTHENTICATED ROUTES ────────────────────────────────────────────────────
+
 // Get all categories
 router.get('/', authMiddleware, async (req, res) => {
   try {
@@ -87,81 +223,6 @@ router.post('/bulk-update', authMiddleware, async (req, res) => {
       { isActive }
     );
     res.json({ message: `${ids.length} categories updated successfully` });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Get hierarchical categories for shop by category section
-router.get('/public/shop-by-category', async (req, res) => {
-  try {
-    // Get all active categories
-    const allCategories = await Category.find({ isActive: true }).sort({ order: 1, name: 1 });
-    
-    // Build hierarchy
-    const categoryMap = {};
-    const rootCategories = [];
-    
-    // First pass: create map
-    allCategories.forEach(cat => {
-      categoryMap[cat._id.toString()] = {
-        _id: cat._id,
-        name: cat.name,
-        slug: cat.slug,
-        description: cat.description,
-        image: cat.image,
-        featured: cat.featured,
-        order: cat.order,
-        subcategories: []
-      };
-    });
-    
-    // Second pass: build hierarchy
-    allCategories.forEach(cat => {
-      if (cat.parentId) {
-        const parent = categoryMap[cat.parentId.toString()];
-        if (parent) {
-          parent.subcategories.push(categoryMap[cat._id.toString()]);
-        }
-      } else {
-        rootCategories.push(categoryMap[cat._id.toString()]);
-      }
-    });
-    
-    res.json(rootCategories);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Get featured categories with subcategories
-router.get('/public/featured', async (req, res) => {
-  try {
-    const featuredCategories = await Category.find({ 
-      isActive: true, 
-      featured: true,
-      parentId: null 
-    }).sort({ order: 1, name: 1 });
-    
-    const categoriesWithSubs = await Promise.all(
-      featuredCategories.map(async (cat) => {
-        const subcategories = await Category.find({ 
-          isActive: true, 
-          parentId: cat._id 
-        }).sort({ order: 1, name: 1 }).limit(8);
-        
-        return {
-          _id: cat._id,
-          name: cat.name,
-          slug: cat.slug,
-          description: cat.description,
-          image: cat.image,
-          subcategories
-        };
-      })
-    );
-    
-    res.json(categoriesWithSubs);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

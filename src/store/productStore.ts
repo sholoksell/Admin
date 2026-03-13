@@ -57,7 +57,7 @@ const mapApiProduct = (apiProd: ApiProduct): Product => ({
   name: apiProd.name,
   slug: apiProd.slug,
   description: apiProd.description,
-  categoryId: apiProd.categoryId,
+  categoryId: (apiProd.categoryId && typeof apiProd.categoryId === 'object') ? (apiProd.categoryId as any)._id : apiProd.categoryId,
   brand: '',
   regularPrice: apiProd.regularPrice,
   salePrice: apiProd.salePrice,

@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useProductStore, Product, ProductVariant } from '@/store/productStore';
-import { useCategoryStore } from '@/store/categoryStore';
+import { useCategoryStore, Category } from '@/store/categoryStore';
 import {
   Dialog,
   DialogContent,
@@ -34,12 +34,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Trash2, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import ImageUpload from './ImageUpload';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Name is required').max(200),
   slug: z.string().min(1, 'Slug is required').max(200),
   description: z.string().max(2000).optional(),
-  categoryId: z.string().nullable(),
+  categoryId: z.string().min(1, 'Category is required'),
   brand: z.string().max(100).optional(),
   regularPrice: z.number().min(0),
   salePrice: z.number().min(0).nullable(),
@@ -64,6 +66,27 @@ interface Props {
   product: Product | null;
 }
 
+const modules = {
+  toolbar: [
+    [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+    [{ 'font': [] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ 'color': [] }, { 'background': [] }],
+    [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+    [{ 'indent': '-1' }, { 'indent': '+1' }],
+    ['link', 'image', 'video'],
+    ['clean'],
+  ],
+};
+
+const formats = [
+  'header', 'font',
+  'bold', 'italic', 'underline', 'strike',
+  'color', 'background',
+  'list', 'bullet', 'indent',
+  'link', 'image', 'video'
+];
+
 export default function ProductFormDialog({ open, onOpenChange, product }: Props) {
   const { products, addProduct, updateProduct } = useProductStore();
   const { categories } = useCategoryStore();
@@ -80,7 +103,7 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
       name: '',
       slug: '',
       description: '',
-      categoryId: null,
+      categoryId: '',
       brand: '',
       regularPrice: 0,
       salePrice: null,
@@ -104,7 +127,7 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
         name: product.name,
         slug: product.slug,
         description: product.description || '',
-        categoryId: product.categoryId,
+        categoryId: product.categoryId || '',
         brand: product.brand || '',
         regularPrice: product.regularPrice,
         salePrice: product.salePrice,
@@ -128,7 +151,7 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
         name: '',
         slug: '',
         description: '',
-        categoryId: null,
+        categoryId: '',
         brand: '',
         regularPrice: 0,
         salePrice: null,
@@ -196,6 +219,21 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
 
   const removeTag = (tag: string) => {
     setTags(tags.filter((t) => t !== tag));
+  };
+
+  const getCategoryPath = (category: Category): string => {
+    const path: string[] = [category.name];
+    let current = category;
+    while (current.parentId) {
+      const parent = categories.find((c) => c.id === current.parentId);
+      if (parent) {
+        path.unshift(parent.name);
+        current = parent;
+      } else {
+        break;
+      }
+    }
+    return path.join(' > ');
   };
 
   const onSubmit = async (data: ProductFormData) => {
@@ -304,11 +342,16 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea
-                          {...field}
-                          rows={4}
-                          className="bg-secondary border-border resize-none"
-                        />
+                        <div className="bg-secondary/50 rounded-md border border-border">
+                          <ReactQuill
+                            theme="snow"
+                            value={field.value || ''}
+                            onChange={field.onChange}
+                            modules={modules}
+                            formats={formats}
+                            className="text-foreground min-h-[150px]"
+                          />
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -324,7 +367,7 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
                         <FormLabel>Category</FormLabel>
                         <Select
                           value={field.value || 'none'}
-                          onValueChange={(v) => field.onChange(v === 'none' ? null : v)}
+                          onValueChange={(v) => field.onChange(v === 'none' ? '' : v)}
                         >
                           <FormControl>
                             <SelectTrigger className="bg-secondary border-border">
@@ -333,11 +376,14 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
                           </FormControl>
                           <SelectContent>
                             <SelectItem value="none">No Category</SelectItem>
-                            {categories.map((cat) => (
-                              <SelectItem key={cat.id} value={cat.id}>
-                                {cat.name}
-                              </SelectItem>
-                            ))}
+                            {categories
+                              .slice()
+                              .sort((a, b) => getCategoryPath(a).localeCompare(getCategoryPath(b)))
+                              .map((cat) => (
+                                <SelectItem key={cat.id} value={cat.id}>
+                                  {getCategoryPath(cat)}
+                                </SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
                         <FormMessage />

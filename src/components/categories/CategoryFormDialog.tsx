@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -30,13 +30,18 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+
+
+import ImageUpload from '../products/ImageUpload';
 
 const categorySchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
   slug: z.string().min(1, 'Slug is required').max(100),
-  description: z.string().max(500).optional(),
+  description: z.string().optional(),
   parentId: z.string().nullable(),
-  icon: z.string().max(10).optional(),
+  icon: z.string().optional(),
   metaTitle: z.string().max(60).optional(),
   metaDescription: z.string().max(160).optional(),
   status: z.enum(['active', 'inactive']),
@@ -55,9 +60,33 @@ interface Props {
   category: Category | null;
 }
 
+const modules = {
+  toolbar: [
+    [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+    [{ 'font': [] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ 'color': [] }, { 'background': [] }],
+    [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+    [{ 'indent': '-1' }, { 'indent': '+1' }],
+    ['link', 'image', 'video'],
+    ['clean'],
+  ],
+};
+
+const formats = [
+  'header', 'font',
+  'bold', 'italic', 'underline', 'strike',
+  'color', 'background',
+  'list', 'bullet', 'indent',
+  'link', 'image', 'video'
+];
+
+
+
 export default function CategoryFormDialog({ open, onOpenChange, category }: Props) {
   const { categories, addCategory, updateCategory } = useCategoryStore();
   const isEditing = !!category;
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<CategoryFormData>({
     resolver: zodResolver(categorySchema),
@@ -114,6 +143,37 @@ export default function CategoryFormDialog({ open, onOpenChange, category }: Pro
     }
   }, [category, form, categories.length]);
 
+  const categoryOptions = useMemo(() => {
+    const getPath = (cat: Category): string => {
+      const path: string[] = [cat.name];
+      let current = cat;
+      const visited = new Set<string>([current.id]);
+
+      while (current.parentId) {
+        // Prevent cycles/infinite loops for deep hierarchies (5+ layers)
+        if (visited.has(current.parentId)) break;
+
+        const parent = categories.find((c) => c.id === current.parentId);
+        if (parent) {
+          path.unshift(parent.name);
+          current = parent;
+          visited.add(current.id);
+        } else {
+          break;
+        }
+      }
+      return path.join(' > ');
+    };
+
+    return categories
+      .filter((c) => c.id !== category?.id)
+      .map((cat) => ({
+        id: cat.id,
+        path: getPath(cat),
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+  }, [categories, category]);
+
   const generateSlug = (name: string) => {
     return name
       .toLowerCase()
@@ -128,38 +188,56 @@ export default function CategoryFormDialog({ open, onOpenChange, category }: Pro
     }
   };
 
-  const onSubmit = (data: CategoryFormData) => {
-    if (isEditing && category) {
-      updateCategory(category.id, {
-        ...data,
-        image: category.image,
-        banner: category.banner,
-      });
-      toast.success('Category updated');
-    } else {
-      addCategory({
-        name: data.name,
-        slug: data.slug,
-        description: data.description || '',
-        parentId: data.parentId,
-        icon: data.icon || null,
-        metaTitle: data.metaTitle || '',
-        metaDescription: data.metaDescription || '',
-        status: data.status,
-        featured: data.featured,
-        position: data.position,
-        showOnMenu: data.showOnMenu,
-        showOnHomepage: data.showOnHomepage,
-        showInSearch: data.showInSearch,
-        image: null,
-        banner: null,
-      });
-      toast.success('Category created');
+  const onSubmit = async (data: CategoryFormData) => {
+    setIsSubmitting(true);
+    try {
+      if (isEditing && category) {
+        await updateCategory(category.id, {
+          ...data,
+          image: category.image,
+          banner: category.banner,
+        });
+        toast.success('Category updated');
+      } else {
+        await addCategory({
+          name: data.name,
+          slug: data.slug,
+          description: data.description || '',
+          parentId: data.parentId,
+          icon: data.icon || null,
+          metaTitle: data.metaTitle || '',
+          metaDescription: data.metaDescription || '',
+          status: data.status,
+          featured: data.featured,
+          position: data.position,
+          showOnMenu: data.showOnMenu,
+          showOnHomepage: data.showOnHomepage,
+          showInSearch: data.showInSearch,
+          image: null,
+          banner: null,
+        });
+        toast.success('Category created');
+      }
+      onOpenChange(false);
+    } catch (error: any) {
+      console.error('Error submitting category:', error);
+      const msg = error.response?.data?.message || error.message || 'Failed to save category';
+      if (msg === 'Network Error') {
+        toast.error('Cannot connect to server. Please check if backend is running.');
+      } else if (msg.includes('buffering timed out')) {
+        toast.error('Database connection timed out. IP Address might be blocked in MongoDB Atlas.');
+      } else if (msg.includes('duplicate key') || msg.includes('E11000')) {
+        toast.error('Category with this Name or Slug already exists. Please change the "URL Slug".');
+        form.setError('slug', { message: 'This slug is already taken' });
+      } else {
+        toast.error(msg);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
-    onOpenChange(false);
   };
 
-  const parentOptions = categories.filter((c) => c.id !== category?.id);
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -223,12 +301,16 @@ export default function CategoryFormDialog({ open, onOpenChange, category }: Pro
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea
-                          {...field}
-                          placeholder="Category description..."
-                          rows={3}
-                          className="bg-secondary border-border resize-none"
-                        />
+                        <div className="bg-secondary/50 rounded-md border border-border">
+                          <ReactQuill
+                            theme="snow"
+                            value={field.value || ''}
+                            onChange={field.onChange}
+                            modules={modules}
+                            formats={formats}
+                            className="text-foreground min-h-[150px]"
+                          />
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -241,7 +323,7 @@ export default function CategoryFormDialog({ open, onOpenChange, category }: Pro
                     name="parentId"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Parent Category</FormLabel>
+                        <FormLabel>Parent</FormLabel>
                         <Select
                           value={field.value || 'none'}
                           onValueChange={(value) =>
@@ -250,14 +332,14 @@ export default function CategoryFormDialog({ open, onOpenChange, category }: Pro
                         >
                           <FormControl>
                             <SelectTrigger className="bg-secondary border-border">
-                              <SelectValue placeholder="Select parent" />
+                              <SelectValue placeholder="Parent" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="none">No Parent (Root)</SelectItem>
-                            {parentOptions.map((cat) => (
-                              <SelectItem key={cat.id} value={cat.id}>
-                                {cat.name}
+                            <SelectItem value="none">--- None ---</SelectItem>
+                            {categoryOptions.map((option) => (
+                              <SelectItem key={option.id} value={option.id}>
+                                {option.path}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -272,13 +354,17 @@ export default function CategoryFormDialog({ open, onOpenChange, category }: Pro
                     name="icon"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Icon (Emoji)</FormLabel>
+                        <FormLabel>Icon (Upload)</FormLabel>
                         <FormControl>
-                          <Input
-                            {...field}
-                            placeholder="📱"
-                            className="bg-secondary border-border"
-                          />
+                          <div className="space-y-2">
+                            <ImageUpload
+                              images={field.value ? [field.value] : []}
+                              onChange={(images) => field.onChange(images[0] || '')}
+                              maxImages={1}
+                              label=""
+                              placeholder="icon"
+                            />
+                          </div>
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -469,11 +555,12 @@ export default function CategoryFormDialog({ open, onOpenChange, category }: Pro
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
+                disabled={isSubmitting}
               >
                 Cancel
               </Button>
-              <Button type="submit" className="gradient-primary text-primary-foreground">
-                {isEditing ? 'Save Changes' : 'Create Category'}
+              <Button type="submit" className="gradient-primary text-primary-foreground" disabled={isSubmitting}>
+                {isSubmitting ? 'Saving...' : (isEditing ? 'Save Changes' : 'Create Category')}
               </Button>
             </div>
           </form>

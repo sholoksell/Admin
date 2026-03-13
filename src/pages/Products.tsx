@@ -37,6 +37,7 @@ import {
 import { toast } from 'sonner';
 import ProductFormDialog from '@/components/products/ProductFormDialog';
 import StockUpdateDialog from '@/components/products/StockUpdateDialog';
+import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog';
 
 const statusConfig: Record<Product['status'], { label: string; className: string }> = {
   published: { label: 'Published', className: 'bg-success/20 text-success' },
@@ -56,6 +57,8 @@ export default function Products() {
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [stockDialogOpen, setStockDialogOpen] = useState(false);
   const [stockProduct, setStockProduct] = useState<Product | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
   useEffect(() => {
     fetchProducts();
@@ -98,8 +101,16 @@ export default function Products() {
   };
 
   const handleDelete = (product: Product) => {
-    deleteProduct(product.id);
-    toast.success('Product deleted');
+    setProductToDelete(product);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (productToDelete) {
+      deleteProduct(productToDelete.id);
+      toast.success('Product deleted');
+      setProductToDelete(null);
+    }
   };
 
   const handleBulkDelete = () => {
@@ -350,11 +361,10 @@ export default function Products() {
                   <TableCell>
                     <button
                       onClick={() => handleStockClick(product)}
-                      className={`font-medium ${
-                        product.stock <= product.lowStockThreshold
-                          ? 'text-destructive'
-                          : 'text-foreground'
-                      } hover:underline`}
+                      className={`font-medium ${product.stock <= product.lowStockThreshold
+                        ? 'text-destructive'
+                        : 'text-foreground'
+                        } hover:underline`}
                     >
                       {product.stock}
                     </button>
@@ -417,6 +427,11 @@ export default function Products() {
         open={stockDialogOpen}
         onOpenChange={setStockDialogOpen}
         product={stockProduct}
+      />
+      <DeleteConfirmationDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        onConfirm={confirmDelete}
       />
     </div>
   );

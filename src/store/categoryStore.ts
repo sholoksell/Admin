@@ -39,18 +39,18 @@ const mapApiCategory = (apiCat: ApiCategory): Category => ({
   name: apiCat.name,
   slug: apiCat.slug,
   description: apiCat.description,
-  parentId: apiCat.parentId,
+  parentId: (apiCat.parentId && typeof apiCat.parentId === 'object') ? (apiCat.parentId as any)._id : apiCat.parentId,
   image: apiCat.image || null,
   banner: null,
-  icon: null,
-  metaTitle: apiCat.name,
-  metaDescription: apiCat.description,
+  icon: apiCat.icon || null,
+  metaTitle: apiCat.metaTitle || '',
+  metaDescription: apiCat.metaDescription || '',
   status: apiCat.isActive ? 'active' : 'inactive',
   featured: apiCat.featured || false,
   position: apiCat.order,
-  showOnMenu: true,
-  showOnHomepage: true,
-  showInSearch: true,
+  showOnMenu: apiCat.showOnMenu ?? true,
+  showOnHomepage: apiCat.showOnHomepage ?? true,
+  showInSearch: apiCat.showInSearch ?? true,
   createdAt: apiCat.createdAt,
   updatedAt: apiCat.updatedAt,
 });
@@ -58,7 +58,7 @@ const mapApiCategory = (apiCat: ApiCategory): Category => ({
 export const useCategoryStore = create<CategoryState>()((set) => ({
   categories: [],
   loading: false,
-  
+
   fetchCategories: async () => {
     set({ loading: true });
     try {
@@ -70,7 +70,7 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
       set({ loading: false });
     }
   },
-  
+
   addCategory: async (category) => {
     try {
       const data = await categoryApi.create({
@@ -78,10 +78,16 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
         slug: category.slug,
         description: category.description,
         image: category.image || '',
-        parentId: category.parentId,
+        parentId: category.parentId || null,
         isActive: category.status === 'active',
         featured: category.featured || false,
         order: category.position,
+        icon: category.icon || '',
+        metaTitle: category.metaTitle || '',
+        metaDescription: category.metaDescription || '',
+        showOnMenu: category.showOnMenu,
+        showOnHomepage: category.showOnHomepage,
+        showInSearch: category.showInSearch,
       });
       set((state) => ({
         categories: [...state.categories, mapApiCategory(data)],
@@ -91,7 +97,7 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
       throw error;
     }
   },
-  
+
   updateCategory: async (id, updates) => {
     try {
       const data = await categoryApi.update(id, {
@@ -103,6 +109,12 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
         isActive: updates.status === 'active',
         featured: updates.featured !== undefined ? updates.featured : false,
         order: updates.position,
+        icon: updates.icon || '',
+        metaTitle: updates.metaTitle || '',
+        metaDescription: updates.metaDescription || '',
+        showOnMenu: updates.showOnMenu,
+        showOnHomepage: updates.showOnHomepage,
+        showInSearch: updates.showInSearch,
       });
       set((state) => ({
         categories: state.categories.map((cat) =>
@@ -114,7 +126,7 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
       throw error;
     }
   },
-  
+
   deleteCategory: async (id) => {
     try {
       await categoryApi.delete(id);
@@ -126,7 +138,7 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
       throw error;
     }
   },
-  
+
   bulkDelete: async (ids) => {
     try {
       await categoryApi.bulkDelete(ids);
@@ -138,7 +150,7 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
       throw error;
     }
   },
-  
+
   bulkUpdateStatus: async (ids, status) => {
     try {
       await categoryApi.bulkUpdate(ids, status === 'active');
@@ -152,7 +164,7 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
       throw error;
     }
   },
-  
+
   reorderCategories: (reorderedCategories) =>
     set({ categories: reorderedCategories }),
 }));

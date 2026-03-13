@@ -9,22 +9,58 @@ dotenv.config();
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: '*', credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Request Logger
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
+});
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // MongoDB Connection
-const uri = 'mongodb+srv://sholoksell1_db_user:s9X1N6Y57l9nWQHK@cluster0.9crcrtz.mongodb.net/sholok_ecommerce?retryWrites=true&w=majority&appName=Cluster0';
+const uri = process.env.MONGODB_URI || 'mongodb+srv://sholoksell1_db_user:s9X1N6Y57l9nWQHK@cluster0.9crcrtz.mongodb.net/sholok_ecommerce?retryWrites=true&w=majority&appName=Cluster0';
 
-mongoose.connect(uri)
-  .then(() => console.log('✅ MongoDB Connected Successfully'))
-  .catch((err) => console.error('❌ MongoDB Connection Error:', err));
+// Global configuration
+mongoose.set('strictQuery', false);
+mongoose.set('bufferTimeoutMS', 45000); // Wait 45s for connection before failing
+
+const connectDB = async () => {
+  try {
+    await mongoose.connect(uri, {
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
+      family: 4, // Force IPv4 to avoid potential IPv6 network issues
+    });
+    console.log('✅ MongoDB Connected Successfully');
+  } catch (err) {
+    console.error('❌ MongoDB Connection Error:', err.message);
+    console.log('Retrying connection in 5 seconds...');
+    setTimeout(connectDB, 5000);
+  }
+};
+
+connectDB();
+
+mongoose.connection.on('connected', () => {
+  console.log('✅ MongoDB connection established');
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB connection error:', err);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.warn('⚠️ MongoDB disconnected');
+});
 
 // Import Routes
 const authRoutes = require('./routes/auth');
+const customerAuthRoutes = require('./routes/customerAuth');
 const categoryRoutes = require('./routes/categories');
 const productRoutes = require('./routes/products');
 const customerRoutes = require('./routes/customers');
@@ -35,6 +71,7 @@ const uploadRoutes = require('./routes/upload');
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/customer-auth', customerAuthRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/customers', customerRoutes);

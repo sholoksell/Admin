@@ -1,7 +1,86 @@
 const express = require('express');
 const router = express.Router();
 const Product = require('../models/Product');
+const Category = require('../models/Category');
 const authMiddleware = require('../middleware/auth');
+
+// ─── PUBLIC ROUTES (no auth, for storefront) ─────────────────────────────────
+
+// Public: get products by category slug or search
+router.get('/public', async (req, res) => {
+  try {
+    const { category, search, featured, limit = 50, page = 1, sort = '-createdAt' } = req.query;
+    // 'active' and 'published' both mean visible on storefront
+    let query = { status: { $in: ['active', 'published'] } };
+
+    if (category) {
+      // category param is a slug — resolve to ObjectId
+      const cat = await Category.findOne({ slug: category });
+      if (cat) {
+        // Also include products from child categories
+        const childCats = await Category.find({ parentId: cat._id });
+        const catIds = [cat._id, ...childCats.map(c => c._id)];
+        query.categoryId = { $in: catIds };
+      } else {
+        // No category found — return empty
+        return res.json({ products: [], pagination: { total: 0, page: 1, pages: 0 } });
+      }
+    }
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { tags: { $in: [new RegExp(search, 'i')] } },
+      ];
+    }
+
+    if (featured === 'true') query.featured = true;
+    if (req.query.onSale === 'true') query.salePrice = { $ne: null, $gt: 0 };
+    // bestSeller: no dedicated flag in schema — return latest active products
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    const sortMap = {
+      '-createdAt': { createdAt: -1 },
+      'price_asc': { regularPrice: 1 },
+      'price_desc': { regularPrice: -1 },
+      'name': { name: 1 },
+    };
+    const sortObj = sortMap[sort] || { createdAt: -1 };
+
+    const [products, total] = await Promise.all([
+      Product.find(query)
+        .populate('categoryId', 'name slug')
+        .sort(sortObj)
+        .skip(skip)
+        .limit(limitNum),
+      Product.countDocuments(query),
+    ]);
+
+    res.json({
+      products,
+      pagination: { total, page: pageNum, pages: Math.ceil(total / limitNum) },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Public: get single product by slug
+router.get('/public/slug/:slug', async (req, res) => {
+  try {
+    const product = await Product.findOne({ slug: req.params.slug, status: 'active' })
+      .populate('categoryId', 'name slug');
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    res.json(product);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ─── AUTHENTICATED ADMIN ROUTES ───────────────────────────────────────────────
 
 // Get all products
 router.get('/', authMiddleware, async (req, res) => {
@@ -38,13 +117,70 @@ router.get('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// Helper: normalise status - admin uses 'published', DB uses 'active'
+const normaliseStatus = (status) => {
+  if (status === 'published') return 'active';
+  if (status === 'archived') return 'draft';
+  return status;
+};
+
+// Helper: ensure slug is unique by appending -1, -2, ... if needed
+const getUniqueSlug = async (baseSlug, excludeId = null) => {
+  let slug = baseSlug;
+  let counter = 1;
+  while (true) {
+    const query = { slug };
+    if (excludeId) query._id = { $ne: excludeId };
+    const existing = await Product.findOne(query);
+    if (!existing) return slug;
+    slug = `${baseSlug}-${counter++}`;
+  }
+};
+
+// Helper: ensure SKU is unique by appending -1, -2, ... if needed
+const getUniqueSku = async (baseSku, excludeId = null) => {
+  let sku = baseSku;
+  let counter = 1;
+  while (true) {
+    const query = { sku };
+    if (excludeId) query._id = { $ne: excludeId };
+    const existing = await Product.findOne(query);
+    if (!existing) return sku;
+    sku = `${baseSku}-${counter++}`;
+  }
+};
+
 // Create product
 router.post('/', authMiddleware, async (req, res) => {
   try {
-    const product = new Product(req.body);
+    const body = { ...req.body };
+
+    // Auto-resolve duplicate slug
+    if (body.slug) {
+      body.slug = await getUniqueSlug(body.slug);
+    }
+
+    // Auto-resolve duplicate SKU
+    if (body.sku) {
+      body.sku = await getUniqueSku(body.sku);
+    }
+
+    // Normalise status
+    if (body.status) body.status = normaliseStatus(body.status);
+
+    // Set thumbnail from first image if not provided
+    if (!body.thumbnail && body.images && body.images.length > 0) {
+      body.thumbnail = body.images[0];
+    }
+
+    const product = new Product(body);
     const savedProduct = await product.save();
     res.status(201).json(savedProduct);
   } catch (error) {
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0] || 'field';
+      return res.status(400).json({ message: `Duplicate value for ${field}. Please use a different value.` });
+    }
     res.status(400).json({ message: error.message });
   }
 });
@@ -52,9 +188,29 @@ router.post('/', authMiddleware, async (req, res) => {
 // Update product
 router.put('/:id', authMiddleware, async (req, res) => {
   try {
+    const body = { ...req.body };
+
+    // Auto-resolve duplicate slug (excluding current product)
+    if (body.slug) {
+      body.slug = await getUniqueSlug(body.slug, req.params.id);
+    }
+
+    // Auto-resolve duplicate SKU (excluding current product)
+    if (body.sku) {
+      body.sku = await getUniqueSku(body.sku, req.params.id);
+    }
+
+    // Normalise status
+    if (body.status) body.status = normaliseStatus(body.status);
+
+    // Set thumbnail from first image if not provided
+    if (!body.thumbnail && body.images && body.images.length > 0) {
+      body.thumbnail = body.images[0];
+    }
+
     const product = await Product.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      body,
       { new: true, runValidators: true }
     );
     if (!product) {
@@ -62,6 +218,10 @@ router.put('/:id', authMiddleware, async (req, res) => {
     }
     res.json(product);
   } catch (error) {
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0] || 'field';
+      return res.status(400).json({ message: `Duplicate value for ${field}. Please use a different value.` });
+    }
     res.status(400).json({ message: error.message });
   }
 });

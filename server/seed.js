@@ -1,21 +1,33 @@
+require('dotenv').config();
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const Admin = require('./models/Admin');
 
-const uri = 'mongodb+srv://sholoksell1_db_user:s9X1N6Y57l9nWQHK@cluster0.9crcrtz.mongodb.net/sholok_ecommerce?retryWrites=true&w=majority&appName=Cluster0';
+const uri = process.env.MONGODB_URI || 'mongodb+srv://sholoksell1_db_user:s9X1N6Y57l9nWQHK@cluster0.9crcrtz.mongodb.net/sholok_ecommerce?retryWrites=true&w=majority&appName=Cluster0';
 
 async function seedDefaultAdmin() {
   try {
-    await mongoose.connect(uri);
+    await mongoose.connect(uri, {
+      serverSelectionTimeoutMS: 30000,
+      family: 4,
+    });
     console.log('✅ MongoDB Connected');
 
     // Check if admin already exists
     const existingAdmin = await Admin.findOne({ email: 'bishal@admin.com' });
-    
+
     if (existingAdmin) {
-      console.log('ℹ️  Default admin already exists');
-      console.log('Email: bishal@admin.com');
-      console.log('Username: bishal');
+      console.log('ℹ️  Default admin exists, resetting password...');
+      const salt = await bcrypt.genSalt(10);
+      existingAdmin.password = await bcrypt.hash('123456', salt);
+      await existingAdmin.save();
+
+      console.log('✅ Password reset (or user confirmed)!');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('📧 Email: bishal@admin.com');
+      console.log('🔑 Password: 123456');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
       await mongoose.connection.close();
       return;
     }

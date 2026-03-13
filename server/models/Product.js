@@ -55,10 +55,14 @@ const productSchema = new mongoose.Schema({
   images: [{
     type: String,
   }],
+  thumbnail: {
+    type: String,
+    default: '',
+  },
   variants: [variantSchema],
   status: {
     type: String,
-    enum: ['active', 'draft', 'out_of_stock'],
+    enum: ['active', 'draft', 'out_of_stock', 'published', 'archived'],
     default: 'active',
   },
   featured: {

@@ -1,17 +1,35 @@
 import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { X, Upload, Image as ImageIcon } from 'lucide-react';
+import { X, Upload, Image as ImageIcon, Link as LinkIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import axios from '@/lib/axios';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
 interface ImageUploadProps {
   images: string[];
   onChange: (images: string[]) => void;
   maxImages?: number;
+  label?: string;
+  placeholder?: string;
 }
 
-export default function ImageUpload({ images, onChange, maxImages = 5 }: ImageUploadProps) {
+export default function ImageUpload({
+  images,
+  onChange,
+  maxImages = 5,
+  label = 'Product Images',
+  placeholder = 'product images'
+}: ImageUploadProps) {
   const [uploading, setUploading] = useState(false);
+  const [showUrlDialog, setShowUrlDialog] = useState(false);
+  const [imageUrl, setImageUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -53,13 +71,41 @@ export default function ImageUpload({ images, onChange, maxImages = 5 }: ImageUp
 
   const handleRemoveImage = async (imageUrl: string) => {
     try {
-      const filename = imageUrl.split('/').pop();
-      await axios.delete(`/upload/${filename}`);
+      // Only attempt to delete from server if it's a local upload (not an external URL)
+      if (!imageUrl.startsWith('http')) {
+        const filename = imageUrl.split('/').pop();
+        await axios.delete(`/upload/${filename}`);
+      }
       onChange(images.filter((img) => img !== imageUrl));
       toast.success('Image removed');
     } catch (error) {
       console.error('Delete error:', error);
-      toast.error('Failed to remove image');
+      // Still remove from list even if server delete fails
+      onChange(images.filter((img) => img !== imageUrl));
+      toast.success('Image removed');
+    }
+  };
+
+  const handleAddUrl = () => {
+    if (!imageUrl.trim()) {
+      toast.error('Please enter a valid URL');
+      return;
+    }
+
+    if (images.length >= maxImages) {
+      toast.error(`Maximum ${maxImages} images allowed`);
+      return;
+    }
+
+    // Basic URL validation
+    try {
+      new URL(imageUrl);
+      onChange([...images, imageUrl]);
+      setImageUrl('');
+      setShowUrlDialog(false);
+      toast.success('Image URL added successfully');
+    } catch (e) {
+      toast.error('Invalid URL format');
     }
   };
 
@@ -71,17 +117,29 @@ export default function ImageUpload({ images, onChange, maxImages = 5 }: ImageUp
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <label className="text-sm font-medium">Product Images</label>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading || images.length >= maxImages}
-        >
-          <Upload className="w-4 h-4 mr-2" />
-          {uploading ? 'Uploading...' : 'Upload Images'}
-        </Button>
+        <label className="text-sm font-medium">{label}</label>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowUrlDialog(true)}
+            disabled={images.length >= maxImages}
+          >
+            <LinkIcon className="w-4 h-4 mr-2" />
+            Add URL
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading || images.length >= maxImages}
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            {uploading ? 'Uploading...' : 'Upload Files'}
+          </Button>
+        </div>
       </div>
 
       <input
@@ -99,8 +157,11 @@ export default function ImageUpload({ images, onChange, maxImages = 5 }: ImageUp
             <div key={index} className="relative group">
               <img
                 src={getFullImageUrl(image)}
-                alt={`Product ${index + 1}`}
+                alt={`Image ${index + 1}`}
                 className="w-full h-24 object-cover rounded-lg border border-border"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400x400?text=Invalid+Image';
+                }}
               />
               <button
                 type="button"
@@ -122,7 +183,7 @@ export default function ImageUpload({ images, onChange, maxImages = 5 }: ImageUp
           <ImageIcon className="w-12 h-12 mx-auto text-muted-foreground mb-2" />
           <p className="text-sm text-muted-foreground">No images uploaded yet</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Click "Upload Images" to add product images
+            Click "Upload Files" to add {placeholder} or "Add URL" to use external images
           </p>
         </div>
       )}
@@ -130,6 +191,42 @@ export default function ImageUpload({ images, onChange, maxImages = 5 }: ImageUp
       <p className="text-xs text-muted-foreground">
         {images.length}/{maxImages} images • First image will be the primary image
       </p>
+
+      {/* URL Dialog */}
+      <Dialog open={showUrlDialog} onOpenChange={setShowUrlDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Image URL</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Image URL</label>
+              <Input
+                placeholder="https://example.com/image.jpg"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddUrl();
+                  }
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter a direct link to an image (jpg, png, webp, etc.)
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowUrlDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddUrl}>
+              Add Image
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

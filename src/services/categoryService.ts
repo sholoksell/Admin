@@ -6,10 +6,16 @@ export interface Category {
   slug: string;
   description: string;
   image: string;
+  icon: string;
+  metaTitle: string;
+  metaDescription: string;
   parentId: string | null;
   isActive: boolean;
   featured: boolean;
   order: number;
+  showOnMenu: boolean;
+  showOnHomepage: boolean;
+  showInSearch: boolean;
   createdAt: string;
   updatedAt: string;
 }
